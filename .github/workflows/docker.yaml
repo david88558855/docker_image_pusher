@@ -1,9 +1,7 @@
-name: Docker
+name: 读取images.txt推送Docker
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 
 env:
