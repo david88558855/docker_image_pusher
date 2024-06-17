@@ -1,12 +1,56 @@
-name: 转存到阿里Docker
+name: 手动转存到阿里Docker
 
 on:
   workflow_dispatch:
     inputs:
       image_name:
-        description: '请填写需要拉取docker-hub的架构 仓库名'
+        description: '请填写需要拉取hub.docker的仓库名镜像名版本号如xhofe/alist:latest'
         required: true
-        default: '--platform=linux/amd64 xiaoyaliu/alist:latest'
+        default: 'xiaoyaliu/alist:latest'
+      aliname:
+        description: '自定义阿里docker镜像名（避免镜像名重复），默认跟随上方的镜像名如alist'
+        required: false
+        default: ''
+      name:
+        description: '自定义阿里docker镜像的版本号，默认跟随上方的版本如latest'
+        required: false
+        default: ''
+      amd64:
+        description: '拉取x86_64架构'
+        required: true
+        default: true
+        type: boolean
+      i386:
+        description: '拉取i386架构'
+        required: true
+        default: false
+        type: boolean
+      arm64:
+        description: '拉取arm64架构'
+        required: true
+        default: false
+        type: boolean
+      armv7:
+        description: '拉取armv7架构'
+        required: true
+        default: false
+        type: boolean
+      armv6:
+        description: '拉取armv6架构'
+        required: true
+        default: false
+        type: boolean
+      armv5:
+        description: '拉取armv5架构'
+        required: true
+        default: false
+        type: boolean
+      s390x:
+        description: '拉取s390x架构'
+        required: true
+        default: false
+        type: boolean
+      
   
 env:
   #阿里云地址 例如 registry.**.aliyuncs.com
@@ -23,6 +67,17 @@ env:
 
   #输入的hub.docker仓库名
   line: "${{ github.event.inputs.image_name }}"
+  name: "${{ github.event.inputs.name }}"
+  aliname: "${{ github.event.inputs.aliname }}"
+  #输入的架构
+  amd64: "${{ github.event.inputs.amd64 }}"
+  i386: "${{ github.event.inputs.i386 }}"
+  arm64: "${{ github.event.inputs.arm64 }}"
+  armv7: "${{ github.event.inputs.armv7 }}"
+  armv6: "${{ github.event.inputs.armv6 }}"
+  armv5: "${{ github.event.inputs.armv5 }}"
+  s390x: "${{ github.event.inputs.s390x }}"
+  
 
 jobs:
 
@@ -31,33 +86,136 @@ jobs:
     steps:
     - name: 设置 Docker Buildx
       uses: docker/setup-buildx-action@v3
+      
+    - name: 登录阿里docker
+      run: echo $ALIYUN_REGISTRY_PASSWORD | docker login $ALIYUN_REGISTRY -u $ALIYUN_REGISTRY_USER --password-stdin 
 
-    - name: Check out code
-      uses: actions/checkout@v4
-         
-    - name: Build and push image Aliyun
+    - name: 获取docker信息
       run: |
-          docker login -u $ALIYUN_REGISTRY_USER -p $ALIYUN_REGISTRY_PASSWORD $ALIYUN_REGISTRY
-          echo "docker pull $line"
-          docker pull $line
-          platform=$(echo "$line" | awk -F'--platform[ =]' '{if (NF>1) print $2}' | awk '{print $1}')
-          echo "platform is $platform"
-          # 如果存在架构信息 将架构信息拼到镜像名称前面
-          if [ -z "$platform" ]; then
-              platform_prefix=""
-          else
-              platform_prefix="${platform//\//_}_"
-          fi
-          echo "platform_prefix is $platform_prefix"
-          # 获取镜像的完整名称，例如kasmweb/nginx:1.25.3（命名空间/镜像名:版本号）
-          image=$(echo "$line" | awk '{print $NF}')
-          # 获取 镜像名:版本号  例如nginx:1.25.3
-          image_name_tag=$(echo "$image" | awk -F'/' '{print $NF}')
-          new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/$platform_prefix$image_name_tag"
-          echo "docker tag $image $new_image"
-          docker tag $image $new_image
-          echo "docker push $new_image"
+          # 获取输入仓库的镜像名:版本号  例如nginx:1.25.3
+          image_name_tag=$(echo "$line" | awk -F'/' '{print $NF}')
+          # 获取镜像名例  例如nginx
+          image_name=$(echo "$image_name_tag" | awk -F':' '{print $1}')
+          image_tag=$(echo "$image_name_tag" | awk -F':' '{print $2}')
+          [[ -n "$aliname" ]] && image_name_tag="${aliname}:$image_tag"
+          [[ -n "$aliname" ]] && image_name=$aliname
+          echo "image_name_tag=${image_name_tag}" >> $GITHUB_ENV
+          echo "image_name=${image_name}" >> $GITHUB_ENV
+
+    - name: 拉取x86_64架构
+      if: github.event.inputs.amd64 == 'true'
+      run: |
+          docker pull --platform=linux/amd64 $line
+          new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/${image_name}:amd64"
+          echo "将拉取的$line x86_64架构镜像更名为 $new_image"
+          docker tag $line $new_image
+          echo "将更名后的镜像$new_image 推送到阿里docker"
           docker push $new_image
+          echo "清理本地镜像$line ..."
+          docker rmi $line
+          echo "AMD64=${new_image}" >> $GITHUB_ENV
+
+    - name: 拉取386架构
+      if: github.event.inputs.i386 == 'true'
+      run: |
+          docker pull --platform=linux/i386 $line
+          new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/${image_name}:i386"
+          echo "将拉取的$line i386架构镜像更名为 $new_image"
+          docker tag $line $new_image
+          echo "将更名后的镜像$new_image 推送到阿里docker"
+          docker push $new_image
+          echo "清理本地镜像$line ..."
+          docker rmi $line
+          echo "I386=${new_image}" >> $GITHUB_ENV
+
+    - name: 拉取arm64架构
+      if: github.event.inputs.arm64 == 'true'
+      run: |
+          docker pull --platform=linux/arm64 $line
+          new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/${image_name}:arm64"
+          echo "将拉取的$line arm64架构镜像更名为 $new_image"
+          docker tag $line $new_image
+          echo "将更名后的镜像$new_image 推送到阿里docker"
+          docker push $new_image
+          echo "清理本地镜像$line ..."
+          docker rmi $line
+          echo "ARM64=${new_image}" >> $GITHUB_ENV
+
+    - name: 拉取armv7架构
+      if: github.event.inputs.armv7 == 'true'
+      run: |
+          docker pull --platform=linux/arm/v7 $line
+          new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/${image_name}:armv7"
+          echo "将拉取的$line armv7架构镜像更名为 $new_image"
+          docker tag $line $new_image
+          echo "将更名后的镜像$new_image 推送到阿里docker"
+          docker push $new_image
+          echo "清理本地镜像$line ..."
+          docker rmi $line
+          echo "ARMV7=${new_image}" >> $GITHUB_ENV
+
+    - name: 拉取armv6架构
+      if: github.event.inputs.armv6 == 'true'
+      run: |
+          docker pull --platform=linux/arm/v6 $line
+          new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/${image_name}:armv6"
+          echo "将拉取的$line armv6架构镜像更名为 $new_image"
+          docker tag $line $new_image
+          echo "将更名后的镜像$new_image 推送到阿里docker"
+          docker push $new_image
+          echo "清理本地镜像$line ..."
+          docker rmi $line
+          echo "ARMV6=${new_image}" >> $GITHUB_ENV
+
+    - name: 拉取armv5架构
+      if: github.event.inputs.armv5 == 'true'
+      run: |
+          docker pull --platform=linux/arm/v5 $line
+          new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/${image_name}:armv5"
+          echo "将拉取的$line armv5架构镜像更名为 $new_image"
+          docker tag $line $new_image
+          echo "将更名后的镜像$new_image 推送到阿里docker"
+          docker push $new_image
+          echo "清理本地镜像$line ..."
+          docker rmi $line
+          echo "ARMV5=${new_image}" >> $GITHUB_ENV
+
+    - name: 拉取s390x架构
+      if: github.event.inputs.s390x == 'true'
+      run: |
+          docker pull --platform=linux/s390x $line
+          new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/${image_name}:s390x"
+          echo "将拉取的$line s390x架构镜像更名为 $new_image"
+          docker tag $line $new_image
+          echo "将更名后的镜像$new_image 推送到阿里docker"
+          docker push $new_image
+          echo "清理本地镜像$line ..."
+          docker rmi $line
+          echo "S390X=${new_image}" >> $GITHUB_ENV
+
+    - name: 合并多架构清单
+      run: |
+          #docker login -u $ALIYUN_REGISTRY_USER -p $ALIYUN_REGISTRY_PASSWORD $ALIYUN_REGISTRY
+          
+          echo "合并多架构清单:"
+          echo "$AMD64"
+          echo "$I386"
+          echo "$ARM64"
+          echo "$ARMV7"
+          echo "$ARMV6"
+          echo "$ARMV5"
+          echo "$S390X"
+          echo "到$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/$image_name_tag"
+          docker manifest create $ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/$image_name_tag $AMD64 $I386 $ARM64 $ARMV7 $ARMV6 $ARMV5 $S390X
+          docker manifest push $ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/$image_name_tag
+          docker manifest rm $ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/$image_name_tag
+
+          if [[ -n "$name" ]] && [[ "$name" != "$image_tag" ]] ; then
+             echo "再合并到$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/${image_name}:$name"
+             docker manifest create $ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/${image_name}:$name $AMD64 $I386 $ARM64 $ARMV7 $ARMV6 $ARMV5 $S390X
+             docker manifest push $ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/${image_name}:$name
+             docker manifest rm $ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/${image_name}:$name
+          fi
 
           sudo rm -rf /home/runner/.docker/
           sudo rm -rf /root/.docker/
